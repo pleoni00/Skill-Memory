@@ -1,0 +1,119 @@
+import os
+from pathlib import Path
+from starlette.applications import Starlette
+import uvicorn
+
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
+from a2a.types import AgentCard, AgentSkill, AgentCapabilities, AgentInterface
+
+from agents import OpenAICompatibleLLMClient, OpenAICompatibleEmbeddingService, LLMExtractor, LLMMerger, HybridRetriever, LLMQueryBuilder, LLMSummaryUpdater
+from storage import KuzuGraphStore, SqliteVectorStore
+
+from a2a_server.agent_executor import ConvMemoryExecutor
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+LLM_BASE_URL   = os.environ.get("LLM_BASE_URL",   "https://api.x.ai/v1")
+LLM_MODEL      = os.environ.get("LLM_MODEL",      "grok-3-mini")
+LLM_API_KEY    = os.environ.get("LLM_API_KEY",    "dummy")
+EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL",  LLM_BASE_URL)
+EMBED_MODEL    = os.environ.get("EMBED_MODEL",     "text-embedding-3-small")
+EMBED_API_KEY  = os.environ.get("EMBED_API_KEY",   LLM_API_KEY)
+DAG_DB_PATH    = os.environ.get("DAG_DB_PATH",    "./data/dag")
+VEC_DB_PATH    = os.environ.get("VEC_DB_PATH",    "./data/vec.db")
+EMBED_DIM      = int(os.environ.get("EMBED_DIM",  "1536"))
+
+Path("./data").mkdir(exist_ok=True)
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+
+graph  = KuzuGraphStore(DAG_DB_PATH)
+vector = SqliteVectorStore(VEC_DB_PATH, embedding_dim=EMBED_DIM)
+
+# ── LLM client ────────────────────────────────────────────────────────────────
+
+llm = OpenAICompatibleLLMClient(
+    model    = LLM_MODEL,
+    base_url = LLM_BASE_URL,
+    api_key  = LLM_API_KEY,
+)
+embed_service = OpenAICompatibleEmbeddingService(base_url = EMBED_BASE_URL)
+extractor = LLMExtractor(embed_service, llm)
+retriever = HybridRetriever(llm, graph, vector)
+merger = LLMMerger(graph, vector, embed_service, llm)
+query_builder = LLMQueryBuilder(llm)
+summary_updater =  LLMSummaryUpdater(graph, llm)
+
+agent_card = AgentCard(
+    name='Conv Memory Agent',
+    description='Agente per la gestione della memoria conversazionale tramite knowledge graph ibrido (DAG + vector store).',
+    version='1.0.0',
+    supported_interfaces=[
+        AgentInterface(protocol_binding='JSONRPC', url='http://localhost:8000/')
+    ],
+    capabilities=AgentCapabilities(streaming=True),
+    skills=[
+        AgentSkill(
+            id='retrieval',
+            name='Ricerca nel knowledge graph',
+            description=(
+                'Dato un insieme di turni conversazionali, recupera i nodi '
+                'più rilevanti dal knowledge graph ibrido (DAG + vector store). '
+                'Restituisce una lista di nodi con titolo e contenuto da iniettare '
+                'come contesto nel system prompt dell\'LLM.'
+            ),
+            tags=['retrieval', 'search', 'memory', 'graph', 'vector'],
+            examples=[
+                'Recupera contesto rilevante per una conversazione su DAG memory systems',
+                'Trova nodi correlati a LLM orchestration e agent memory design',
+            ],
+            input_modes=['application/json'],
+            output_modes=['application/json'],
+        ),
+        AgentSkill(
+            id='ingestion',
+            name='Salvataggio conversazione nel knowledge graph',
+            description=(
+                'Riceve una lista di turni conversazionali (role + content), '
+                'li processa estraendo entità e relazioni, e li persiste '
+                'nel knowledge graph ibrido aggiornando sia il DAG che il vector store.'
+            ),
+            tags=['ingestion', 'memory', 'store', 'graph', 'embedding'],
+            examples=[
+                'Salva una conversazione su retrieval-augmented generation nel knowledge graph',
+                'Indicizza e persisti una sessione di debug su agent memory design',
+            ],
+            input_modes=['application/json'],
+            output_modes=['text/plain'],
+        ),
+    ]
+)
+
+request_handler = DefaultRequestHandler(
+    agent_executor=ConvMemoryExecutor(
+        llm, 
+        graph, 
+        vector,
+        extractor,
+        retriever,
+        merger,
+        query_builder,
+        summary_updater,
+        embed_service
+    ),
+    task_store=InMemoryTaskStore(),
+    agent_card=agent_card,
+)
+
+routes = []
+routes.extend(create_agent_card_routes(agent_card))
+routes.extend(create_jsonrpc_routes(request_handler, rpc_url='/'))
+
+app = Starlette(routes=routes)
+
+if __name__ == "__main__":
+    for route in routes:
+        print(route.path)
+    uvicorn.run(app, host='localhost', port=8000, log_level="info")
