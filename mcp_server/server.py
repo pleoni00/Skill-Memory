@@ -37,7 +37,7 @@ EMBED_DIM      = int(os.environ.get("EMBED_DIM",  "1536"))
 
 Path("./data").mkdir(exist_ok=True)
 
-# ── Storage (SqliteGraphStore come in A2A) ────────────────────────────────────
+# ── Storage ───────────────────────────────────────────────────────────────────
 
 graph  = SqliteGraphStore(DAG_DB_PATH)
 vector = SqliteVectorStore(VEC_DB_PATH, embedding_dim=EMBED_DIM)
