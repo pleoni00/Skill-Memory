@@ -4,10 +4,19 @@ from typing import Optional
 from datetime import datetime
 import uuid
 
+class MergeAction(str, Enum):
+    ADD_ROOT   = "add_root"    # nuovo nodo radice
+    ADD_CHILD  = "add_child"   # nuovo nodo figlio di un esistente
+    UPDATE     = "update"      # aggiorna contenuto nodo esistente
+    MERGE      = "merge"       # fondi chunk in nodo esistente
+    SKIP       = "skip"        # nessuna azione
+
+
 class NodeStatus(Enum):
     ACTIVE = "active"
     STALE  = "stale"
     MERGED = "merged"
+
 
 @dataclass
 class Node:
@@ -20,7 +29,6 @@ class Node:
     parents:   list[str]   = field(default_factory=list)
     children:  list[str]   = field(default_factory=list)
     tags:      list[str]   = field(default_factory=list)
-    confidence: float      = 1.0
     status:    NodeStatus  = NodeStatus.ACTIVE
     created_at: datetime   = field(default_factory=datetime.utcnow)
     updated_at: datetime   = field(default_factory=datetime.utcnow)
@@ -35,7 +43,6 @@ class Node:
             "parents":    self.parents,
             "children":   self.children,
             "tags":       self.tags,
-            "confidence": self.confidence,
             "status":     self.status.value,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -62,44 +69,6 @@ class Chunk:
     topic:     str
     source_conversation_id: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-
-@dataclass
-class RetrievalResult:
-    node:           Node
-    vector_score:   float
-    dag_score:      float = 0.0
-
-    @property
-    def combined_score(self) -> float:
-        return 0.7 * self.vector_score + 0.3 * self.dag_score
-
-
-@dataclass
-class MergeDecision:
-    action:      MergeAction
-    chunk:       Chunk
-    target_node: Optional[Node]
-    rationale:   str
-
-
-@dataclass
-class SearchResult:
-    nodes:      list[RetrievalResult]
-    query_used: str
-
-# core/entities.py (aggiunte)
-
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional
-
-class MergeAction(str, Enum):
-    ADD_ROOT   = "add_root"    # nuovo nodo radice
-    ADD_CHILD  = "add_child"   # nuovo nodo figlio di un esistente
-    UPDATE     = "update"      # aggiorna contenuto nodo esistente
-    MERGE      = "merge"       # fondi chunk in nodo esistente
-    SKIP       = "skip"        # nessuna azione
 
 
 @dataclass

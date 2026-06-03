@@ -1,6 +1,5 @@
 from .core.entities import (
     Node, Turn, Conversation, Chunk,
-    RetrievalResult, MergeDecision, SearchResult,
     MergeAction, NodeStatus
 )
 from .core.interfaces import (
@@ -9,9 +8,7 @@ from .core.interfaces import (
 )
 
 __all__ = [
-    "Node", "Turn", "Conversation", "Chunk",
-    "RetrievalResult", "MergeDecision", "SearchResult",
-    "MergeAction", "NodeStatus",
+    "Node", "Turn", "Conversation", "Chunk", "MergeAction", "NodeStatus",
     "LLMClient", "GraphStore", "VectorStore", "EmbeddingService",
     "Extractor", "Retriever", "Merger", "QueryBuilder", "SummaryUpdater",
 ]

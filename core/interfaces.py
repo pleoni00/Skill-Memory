@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 from .entities import (
-    Node, Chunk, Conversation, BatchMergeDecision,
-    ChunkDecision, SearchResult, Turn
+    Node, Chunk, Conversation, BatchMergeDecision, Turn
 )
 
 

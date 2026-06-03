@@ -25,7 +25,6 @@ class KuzuGraphStore(GraphStore):
                 content    STRING,
                 source     STRING,
                 tags       STRING,
-                confidence DOUBLE,
                 status     STRING,
                 created_at STRING,
                 updated_at STRING,
@@ -55,7 +54,6 @@ class KuzuGraphStore(GraphStore):
             source     = row["source"],
             embedding  = [],    # non in Kuzu, sta in VectorStore
             tags       = tags,
-            confidence = row["confidence"],
             status     = NodeStatus(row["status"]),
             created_at = datetime.fromisoformat(row["created_at"]),
             updated_at = datetime.fromisoformat(row["updated_at"]),
@@ -86,7 +84,6 @@ class KuzuGraphStore(GraphStore):
                 content:    $content,
                 source:     $source,
                 tags:       $tags,
-                confidence: $confidence,
                 status:     $status,
                 created_at: $created_at,
                 updated_at: $updated_at
@@ -98,7 +95,6 @@ class KuzuGraphStore(GraphStore):
             "content":    node.content,
             "source":     node.source,
             "tags":       json.dumps(node.tags),
-            "confidence": node.confidence,
             "status":     node.status.value,
             "created_at": node.created_at.isoformat(),
             "updated_at": node.updated_at.isoformat(),
@@ -113,7 +109,6 @@ class KuzuGraphStore(GraphStore):
                 n.content    = $content,
                 n.source     = $source,
                 n.tags       = $tags,
-                n.confidence = $confidence,
                 n.status     = $status,
                 n.updated_at = $updated_at
         """, {
@@ -123,7 +118,6 @@ class KuzuGraphStore(GraphStore):
             "content":    node.content,
             "source":     node.source,
             "tags":       json.dumps(node.tags),
-            "confidence": node.confidence,
             "status":     node.status.value,
             "updated_at": node.updated_at.isoformat(),
         })
@@ -219,7 +213,6 @@ class SqliteGraphStore(GraphStore):
                 content    TEXT,
                 source     TEXT,
                 tags       TEXT,       -- JSON array
-                confidence REAL,
                 status     TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -249,7 +242,6 @@ class SqliteGraphStore(GraphStore):
             source     = row["source"],
             embedding  = [],    # sta in SqliteVectorStore
             tags       = tags,
-            confidence = row["confidence"],
             status     = NodeStatus(row["status"]),
             created_at = datetime.fromisoformat(row["created_at"]),
             updated_at = datetime.fromisoformat(row["updated_at"]),
@@ -278,9 +270,9 @@ class SqliteGraphStore(GraphStore):
     def add_node(self, node: Node) -> None:
         self._conn.execute("""
             INSERT INTO nodes(id, title, summary, content, source,
-                              tags, confidence, status, created_at, updated_at)
+                              tags, status, created_at, updated_at)
             VALUES (:id, :title, :summary, :content, :source,
-                    :tags, :confidence, :status, :created_at, :updated_at)
+                    :tags, :status, :created_at, :updated_at)
         """, {
             "id":         node.id,
             "title":      node.title,
@@ -288,7 +280,6 @@ class SqliteGraphStore(GraphStore):
             "content":    node.content,
             "source":     node.source,
             "tags":       json.dumps(node.tags),
-            "confidence": node.confidence,
             "status":     node.status.value,
             "created_at": node.created_at.isoformat(),
             "updated_at": node.updated_at.isoformat(),
@@ -304,7 +295,6 @@ class SqliteGraphStore(GraphStore):
                 content    = :content,
                 source     = :source,
                 tags       = :tags,
-                confidence = :confidence,
                 status     = :status,
                 updated_at = :updated_at
             WHERE id = :id
@@ -315,7 +305,6 @@ class SqliteGraphStore(GraphStore):
             "content":    node.content,
             "source":     node.source,
             "tags":       json.dumps(node.tags),
-            "confidence": node.confidence,
             "status":     node.status.value,
             "updated_at": node.updated_at.isoformat(),
         })

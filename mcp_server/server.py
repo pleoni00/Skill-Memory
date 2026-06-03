@@ -231,15 +231,7 @@ async def _handle_search(args: dict) -> list[types.TextContent]:
 
     output = {
         "query_used": query,
-        "nodes": [
-            {
-                **r.node.to_dict(),
-                "vector_score":   round(r.vector_score, 3),
-                "dag_score":      round(r.dag_score, 3),
-                "combined_score": round(r.combined_score, 3),
-            }
-            for r in results
-        ]
+        "nodes": [r.node.to_dict() for r in results]
     }
 
     return [types.TextContent(type="text", text=json.dumps(output, ensure_ascii=False, indent=2))]
