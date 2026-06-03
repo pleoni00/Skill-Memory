@@ -8,8 +8,8 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard, AgentSkill, AgentCapabilities, AgentInterface
 
-from agents import OpenAICompatibleLLMClient, OpenAICompatibleEmbeddingService, LLMExtractor, LLMMerger, HybridRetriever, LLMQueryBuilder, LLMSummaryUpdater
-from storage import KuzuGraphStore, SqliteVectorStore
+from agents import OpenAICompatibleLLMClient, OpenAICompatibleEmbeddingService, LLMExtractor, LLMMerger, HybridRetriever, LLMQueryBuilder, LLMSummaryUpdater, LLMMergeDecisionAgent
+from storage import SqliteGraphStore, SqliteVectorStore
 
 from a2a_server.agent_executor import ConvMemoryExecutor
 
@@ -21,7 +21,7 @@ LLM_API_KEY    = os.environ.get("LLM_API_KEY",    "dummy")
 EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL",  LLM_BASE_URL)
 EMBED_MODEL    = os.environ.get("EMBED_MODEL",     "text-embedding-3-small")
 EMBED_API_KEY  = os.environ.get("EMBED_API_KEY",   LLM_API_KEY)
-DAG_DB_PATH    = os.environ.get("DAG_DB_PATH",    "./data/dag")
+DAG_DB_PATH    = os.environ.get("DAG_DB_PATH",    "./data/vec.db")
 VEC_DB_PATH    = os.environ.get("VEC_DB_PATH",    "./data/vec.db")
 EMBED_DIM      = int(os.environ.get("EMBED_DIM",  "1536"))
 
@@ -29,7 +29,7 @@ Path("./data").mkdir(exist_ok=True)
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 
-graph  = KuzuGraphStore(DAG_DB_PATH)
+graph  = SqliteGraphStore(DAG_DB_PATH)
 vector = SqliteVectorStore(VEC_DB_PATH, embedding_dim=EMBED_DIM)
 
 # ── LLM client ────────────────────────────────────────────────────────────────
@@ -39,10 +39,11 @@ llm = OpenAICompatibleLLMClient(
     base_url = LLM_BASE_URL,
     api_key  = LLM_API_KEY,
 )
-embed_service = OpenAICompatibleEmbeddingService(base_url = EMBED_BASE_URL)
+embed_service = OpenAICompatibleEmbeddingService(model = EMBED_MODEL, base_url = EMBED_BASE_URL, api_key = EMBED_API_KEY)
 extractor = LLMExtractor(embed_service, llm)
+decision_agent = LLMMergeDecisionAgent(llm, graph)
 retriever = HybridRetriever(llm, graph, vector)
-merger = LLMMerger(graph, vector, embed_service, llm)
+merger = LLMMerger(graph, vector, embed_service)
 query_builder = LLMQueryBuilder(llm)
 summary_updater =  LLMSummaryUpdater(graph, llm)
 
@@ -98,6 +99,7 @@ request_handler = DefaultRequestHandler(
         vector,
         extractor,
         retriever,
+        decision_agent,
         merger,
         query_builder,
         summary_updater,

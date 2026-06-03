@@ -1,25 +1,30 @@
 from core.entities import Turn, Node, NodeStatus
 from core.interfaces import QueryBuilder, SummaryUpdater, GraphStore
 from agents.llm_client import LLMClient
+from agents.prompts import QUERY_BUILDER_PROMPT, SUMMARY_UPDATER_PROMPT, RETRIEVAL_GATE_PROMPT
 
 # ── QueryBuilder ──────────────────────────────────────────────────────────────
-
-QUERY_BUILDER_PROMPT = """Sei un assistente che trasforma una conversazione in una query di ricerca.
-
-Ricevi gli ultimi turni di una conversazione.
-Produci UNA singola query semantica in italiano che cattura:
-- L'intento principale dell'utente
-- Il contesto rilevante degli ultimi messaggi
-- Eventuali entità o concetti chiave
-
-Rispondi SOLO con la query, nessun altro testo.
-"""
-
 
 class LLMQueryBuilder(QueryBuilder):
 
     def __init__(self, llm: LLMClient):
         self._llm = llm
+
+    def _needs_retrieval(self, turns: list[Turn]) -> bool:
+        last_user = next(
+            (t.content for t in reversed(turns) if t.role == "user"),
+            None,
+        )
+        if not last_user:
+            return False
+
+        response = self._llm.complete(
+            system     = RETRIEVAL_GATE_PROMPT,
+            user       = last_user,
+            max_tokens = 100,
+        ).strip().upper()
+
+        return response.startswith("YES")
 
     def build(self, turns: list[Turn]) -> str:
         if not turns:
@@ -33,28 +38,10 @@ class LLMQueryBuilder(QueryBuilder):
         return self._llm.complete(
             system     = QUERY_BUILDER_PROMPT,
             user       = convo_text,
-            max_tokens = 15000,
+            max_tokens = 1000,
         ).strip()
 
-
 # ── SummaryUpdater ────────────────────────────────────────────────────────────
-
-SUMMARY_UPDATER_PROMPT = """
-You maintain a NAVIGATIONAL SUMMARY of a node in a knowledge DAG.
-
-The summary must answer:
-
-"If I search for a concept, should I go into this subtree?"
-
-Rules:
-- focus on what exists below
-- not on what the node is
-- emphasize discrimination (what is here vs not here)
-- max 3 sentences
-
-Output ONLY the summary.
-"""
-
 
 class LLMSummaryUpdater(SummaryUpdater):
 

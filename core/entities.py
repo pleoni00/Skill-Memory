@@ -4,26 +4,17 @@ from typing import Optional
 from datetime import datetime
 import uuid
 
-
-class MergeAction(Enum):
-    ADD    = "add"
-    UPDATE = "update"
-    MERGE  = "merge"
-    SKIP   = "skip"
-
-
 class NodeStatus(Enum):
     ACTIVE = "active"
-    STALE  = "stale"   # summary potenzialmente non aggiornato
-    MERGED = "merged"  # accorpato in altro nodo
-
+    STALE  = "stale"
+    MERGED = "merged"
 
 @dataclass
 class Node:
     title:     str
-    summary:   str          # risponde a "scendo qui?"
-    content:   str          # conoscenza distillata
-    source:    str          # testo raw originale
+    summary:   str          
+    content:   str
+    source:    str
     embedding: list[float]
     id:        str          = field(default_factory=lambda: str(uuid.uuid4()))
     parents:   list[str]   = field(default_factory=list)
@@ -53,7 +44,7 @@ class Node:
 
 @dataclass
 class Turn:
-    role:    str   # "user" | "assistant"
+    role:    str
     content: str
 
 
@@ -95,4 +86,35 @@ class MergeDecision:
 @dataclass
 class SearchResult:
     nodes:      list[RetrievalResult]
-    query_used: str   # query arricchita, utile per debug
+    query_used: str
+
+# core/entities.py (aggiunte)
+
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Optional
+
+class MergeAction(str, Enum):
+    ADD_ROOT   = "add_root"    # nuovo nodo radice
+    ADD_CHILD  = "add_child"   # nuovo nodo figlio di un esistente
+    UPDATE     = "update"      # aggiorna contenuto nodo esistente
+    MERGE      = "merge"       # fondi chunk in nodo esistente
+    SKIP       = "skip"        # nessuna azione
+
+
+@dataclass
+class ChunkDecision:
+    """Decisione atomica: un chunk → un target (o nessuno)."""
+    action:      MergeAction
+    chunk:       Chunk
+    target_node: Optional[Node]   # None solo per ADD_ROOT
+    parent_node: Optional[Node]   # solo per ADD_CHILD
+    new_content: Optional[str]    # per UPDATE / MERGE
+    new_summary: Optional[str]    # per UPDATE / MERGE
+    rationale:   str
+
+
+@dataclass
+class BatchMergeDecision:
+    """Output del MergeDecisionAgent: una decisione per chunk (o frammento)."""
+    decisions: list[ChunkDecision] = field(default_factory=list)

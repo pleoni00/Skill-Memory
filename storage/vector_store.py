@@ -9,13 +9,6 @@ from core.interfaces import VectorStore
 def _serialize(embedding: list[float]) -> bytes:
     return struct.pack(f"{len(embedding)}f", *embedding)
 
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    va, vb = np.array(a), np.array(b)
-    denom = np.linalg.norm(va) * np.linalg.norm(vb)
-    return float(np.dot(va, vb) / denom) if denom > 0 else 0.0
-
-
 class SqliteVectorStore(VectorStore):
 
     def __init__(self, db_path: str, embedding_dim: int):

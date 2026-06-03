@@ -7,7 +7,7 @@ from a2a.helpers import new_task_from_user_message, new_text_message
 from a2a.types import Part, TaskState
 
 from core.entities import Turn, Conversation, Chunk
-from core.interfaces import LLMClient, GraphStore, VectorStore, Extractor, Retriever, Merger, QueryBuilder, SummaryUpdater, EmbeddingService
+from core.interfaces import LLMClient, GraphStore, VectorStore, Extractor, Retriever, Merger, QueryBuilder, SummaryUpdater, EmbeddingService, MergeDecisionAgent
 
 class ConvMemoryExecutor(AgentExecutor):
     def __init__(
@@ -17,6 +17,7 @@ class ConvMemoryExecutor(AgentExecutor):
         vector: VectorStore,
         extractor: Extractor,
         retriever: Retriever,
+        decision_agent: MergeDecisionAgent,
         merger: Merger,
         query_builder: QueryBuilder,
         summary_updater: SummaryUpdater,
@@ -25,11 +26,12 @@ class ConvMemoryExecutor(AgentExecutor):
         self._llm    = llm
         self._graph  = graph
         self._vector = vector
-        self._extractor = extractor,
-        self._retriever = retriever,
-        self._merger = merger,
-        self._query_builder = query_builder,
-        self._summary_updater = summary_updater,
+        self._extractor = extractor
+        self._retriever = retriever
+        self._decision_agent = decision_agent
+        self._merger = merger
+        self._query_builder = query_builder
+        self._summary_updater = summary_updater
         self._embed_service   = embed_service
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
@@ -76,7 +78,16 @@ class ConvMemoryExecutor(AgentExecutor):
             Turn(role=t["role"], content=t["content"])
             for t in payload.get("turns", [])
         ]
-        top_k = payload.get("top_k", 5)
+
+        to_retrieve = self._query_builder._needs_retrieval(turns)
+
+        if not to_retrieve:
+            await updater.add_artifact(
+                [Part(text=json.dumps({"nodes": [], "query_used": ""}))],
+                name="retrieval_result",
+            )
+            await updater.complete()
+            return            
 
         query = self._query_builder.build(turns)
         if not query:
@@ -95,19 +106,11 @@ class ConvMemoryExecutor(AgentExecutor):
             source_conversation_id = "search",
         )
 
-        results = self._retriever.retrieve(synthetic_chunk, top_k=top_k)
+        retrieved_nodes = self._retriever.retrieve(synthetic_chunk)
 
         output = {
             "query_used": query,
-            "nodes": [
-                {
-                    **r.node.to_dict(),
-                    "vector_score":   round(r.vector_score, 3),
-                    "dag_score":      round(r.dag_score, 3),
-                    "combined_score": round(r.combined_score, 3),
-                }
-                for r in results
-            ],
+            "nodes": [n.to_dict() for n in retrieved_nodes],
         }
 
         await updater.add_artifact(
@@ -128,8 +131,8 @@ class ConvMemoryExecutor(AgentExecutor):
             Turn(role=t["role"], content=t["content"])
             for t in payload.get("turns", [])
         ]
-        convo  = Conversation(turns=turns)
-        log    = []
+        convo = Conversation(turns=turns)
+        log   = []
 
         chunks = self._extractor.extract(convo)
         log.append(f"Estratti {len(chunks)} chunk.")
@@ -142,20 +145,27 @@ class ConvMemoryExecutor(AgentExecutor):
             await updater.complete()
             return
 
-        nodes_modified = set()
-        for chunk in chunks:
-            candidates = self._retriever.retrieve(chunk, top_k=3)
-            decision   = self._merger.decide(chunk, candidates)
-            result     = self._merger.apply(decision)
+        # Retrieve + decide in batch
+        nodes = self._retriever.retrieve_and_decide(chunks)
+        batch = self._decision_agent.decide(chunks, nodes)  # per ora, decisioni solo sul primo chunk
 
-            log.append(
-                f"Chunk '{chunk.topic}': {decision.action.value}"
-                + (f" → {result.id}" if result else "")
-                + f" ({decision.rationale})"
-            )
+        for decision in batch.decisions:
+            target_id = decision.target_node.id if decision.target_node else None
+            parent_id = decision.parent_node.id if decision.parent_node else None
 
-            if result:
-                nodes_modified.add(result.id)
+            line = f"Chunk '{decision.chunk.topic}': {decision.action.value}"
+            if target_id:
+                line += f" → target={target_id}"
+            if parent_id:
+                line += f" parent={parent_id}"
+            line += f" ({decision.rationale})"
+            log.append(line)
+
+        # Apply batch
+        affected = self._merger.apply(batch)
+        nodes_modified = {n.id for n in affected}
+
+        log.append(f"{len(affected)} nodi creati o modificati.")
 
         for node_id in nodes_modified:
             self._summary_updater.update_ancestors(node_id)
@@ -166,4 +176,5 @@ class ConvMemoryExecutor(AgentExecutor):
             [Part(text="\n".join(log))],
             name="ingestion_log",
         )
-        await updater.complete()
+        await updater.complete()        
+        

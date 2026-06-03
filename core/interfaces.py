@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-from .entities import Node, Chunk, Conversation, RetrievalResult, MergeDecision, SearchResult, Turn
+from .entities import (
+    Node, Chunk, Conversation, BatchMergeDecision,
+    ChunkDecision, SearchResult, Turn
+)
+
 
 class LLMClient(ABC):
 
     @abstractmethod
     def complete(self, system: str, user: str, max_tokens: int = 1000) -> str:
-        """Unico metodo — restituisce il testo della risposta."""
+        """Returns the text of the LLM response."""
         ...
+
 
 class GraphStore(ABC):
 
@@ -34,7 +39,7 @@ class GraphStore(ABC):
 
     @abstractmethod
     def mark_stale(self, node_id: str) -> None:
-        """Marca il nodo e tutti gli antenati come stale."""
+        """Marks the node and all its ancestors as stale."""
         ...
 
     @abstractmethod
@@ -46,14 +51,15 @@ class GraphStore(ABC):
     @abstractmethod
     def search(self, node: Node) -> list[Node]: ...
 
+
 class VectorStore(ABC):
 
     @abstractmethod
-    def upsert(self, node_id: str, embedding: list[float]) -> None: ...
+    def upsert(self, node_id: str, embedding: list[float], is_root: bool) -> None: ...
 
     @abstractmethod
     def search(self, embedding: list[float], top_k: int) -> list[tuple[str, float]]:
-        """Restituisce lista di (node_id, score)."""
+        """Returns a list of (node_id, score)."""
         ...
 
     @abstractmethod
@@ -74,9 +80,9 @@ class Extractor(ABC):
     @abstractmethod
     def extract(self, conversation: Conversation) -> list[Chunk]:
         """
-        1. Isola i turni utente
-        2. Segmenta per cambio di argomento
-        3. Produce chunk con embedding
+        1. Isolates user turns
+        2. Segments by topic change
+        3. Produces chunks with embeddings
         """
         ...
 
@@ -84,29 +90,55 @@ class Extractor(ABC):
 class Retriever(ABC):
 
     @abstractmethod
-    def retrieve(self, chunk: Chunk, top_k: int = 3) -> list[RetrievalResult]: ...
+    def retrieve(self, turn) -> list[Node]:
+        """
+        Pure retrieval. Returns relevant nodes with no scoring.
+        Traverses the DAG top-down with LLM filtering at each level.
+        """
+        ...
+
+    @abstractmethod
+    def retrieve_and_decide(self, chunks: list[Chunk]) -> BatchMergeDecision:
+        """
+        Retrieves relevant nodes for a batch of chunks and delegates
+        all integration decisions to MergeDecisionAgent.
+        """
+        ...
+
+
+class MergeDecisionAgent(ABC):
+
+    @abstractmethod
+    def decide(self, chunks: list[Chunk], nodes: list[Node]) -> BatchMergeDecision:
+        """
+        Receives a batch of chunks and the relevant existing nodes.
+        Returns one or more ChunkDecision per chunk (split allowed).
+        Does NOT execute any write.
+        """
+        ...
 
 
 class Merger(ABC):
 
     @abstractmethod
-    def decide(self, chunk: Chunk, candidates: list[RetrievalResult]) -> MergeDecision:
+    def apply(self, batch: BatchMergeDecision) -> list[Node]:
         """
-        similarity > 0.95 → SKIP  (no LLM)
-        similarity < 0.40 → ADD   (no LLM)
-        altrimenti        → chiede all'LLM
+        Executes all decisions in the batch.
+        Returns the list of nodes that were created or modified.
         """
         ...
-
-    @abstractmethod
-    def apply(self, decision: MergeDecision) -> Optional[Node]: ...
 
 
 class QueryBuilder(ABC):
 
     @abstractmethod
     def build(self, turns: list[Turn]) -> str:
-        """Trasforma gli ultimi N turni in una query semantica arricchita."""
+        """Transforms the last N turns into an enriched semantic query."""
+        ...
+
+    @abstractmethod
+    def _needs_retrieval(self, turns: list[Turn]) -> bool:
+        """Determines if retrieval is needed based on the last N turns."""
         ...
 
 
@@ -114,5 +146,5 @@ class SummaryUpdater(ABC):
 
     @abstractmethod
     def update_ancestors(self, node_id: str) -> None:
-        """Aggiorna solo i nodi STALE risalendo l'albero. Lazy."""
+        """Updates only STALE nodes walking up the tree. Lazy evaluation."""
         ...

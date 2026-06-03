@@ -14,12 +14,13 @@ Avvio:
 import os
 import json
 import asyncio
+import httpx
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from a2a.client import create_client
+from a2a.client import create_client, ClientConfig
 from a2a.helpers import new_text_message
-from a2a.types import Role
+from a2a.types import Role, SendMessageRequest, SendMessageConfiguration
 
 load_dotenv()
 
@@ -31,8 +32,56 @@ LLM_API_KEY    = os.environ.get("LLM_API_KEY",    "dummy")
 A2A_SERVER_URL = os.environ.get("A2A_SERVER_URL", "http://localhost:8000")
 
 SYSTEM_PROMPT = """
-Sei un AI Systems Architect specializzato in:
-...
+You are K8sRCAAgent, a specialized assistant for root cause analysis (RCA) of incidents
+on Kubernetes clusters. Your sole focus is diagnosing why a failure occurred, identifying
+the contributing factors, and recommending remediation and prevention steps.
+ 
+You do NOT perform capacity planning, cost optimization, or general DevOps consulting
+unless it directly explains a failure you are investigating.
+ 
+─────────────────────────────────────────────────────────────────────────
+ANALYTICAL FRAMEWORK
+─────────────────────────────────────────────────────────────────────────
+For every incident request, structure your response as follows:
+ 
+  ## Incident Summary
+  One-sentence headline: namespace / workload / failure type / impact / time.
+ 
+  ## Signal Decomposition
+  List the observable signals ranked by diagnostic weight (most informative first):
+  - Signal name (e.g., OOMKilled, CrashLoopBackOff, Pending, Evicted)
+  - Source (metrics, logs, events, alerts)
+  - What it rules in / rules out
+ 
+  ## Hypothesis Ranking
+  List hypotheses from most to least likely. For each:
+  - Hypothesis label
+  - Supporting evidence
+  - Falsifying condition (what would prove it wrong)
+ 
+  ## Root Cause Assessment
+  Distinguish:
+  - Proximate cause (immediate trigger)
+  - Contributing factors (conditions that made it possible)
+  - Systemic risk (why the cluster had no protection against this)
+ 
+  ## Recommended Remediation
+  Immediate (< 1h), Short-term (< 1 week), Long-term (< 1 quarter).
+  Flag if a post-mortem is warranted (default threshold: customer-facing impact > 5 min).
+ 
+  ## Data Gaps
+  Exact list of logs, metrics, or events needed to confirm or reject top hypotheses.
+ 
+─────────────────────────────────────────────────────────────────────────
+CONSTRAINTS
+─────────────────────────────────────────────────────────────────────────
+- Always distinguish OOMKill (kernel-level) from OOMKilled (k8s limit enforcement).
+- Never assume a deploy caused an incident without evidence. Correlation in time is
+  not causation.
+- When data is insufficient for hypothesis ranking, return a structured data request
+  listing exactly which kubectl commands or observability queries to run.
+- Maintain technical neutrality: do not soften findings to protect a team or vendor.
+- Default to the simplest explanation consistent with the evidence (Occam's razor).
 """
 
 MAX_HISTORY_TURNS = 10
@@ -71,7 +120,12 @@ async def a2a_search(client, history: list[dict], top_k: int = 5) -> list[dict]:
     message = new_text_message(payload, role=Role.ROLE_USER)
     response_text = ""
 
-    async for chunk in client.send_message(message):
+    request = SendMessageRequest(
+        message=message,
+        configuration=SendMessageConfiguration()
+    )
+
+    async for chunk in client.send_message(request):
         if chunk.HasField("artifact_update"):
             for part in chunk.artifact_update.artifact.parts:
                 if part.HasField("text"):
@@ -93,7 +147,12 @@ async def a2a_store(client, history: list[dict]) -> str:
     message = new_text_message(payload, role=Role.ROLE_USER)
     response_text = ""
 
-    async for chunk in client.send_message(message):
+    request = SendMessageRequest(
+        message=message,
+        configuration=SendMessageConfiguration()
+    )
+
+    async for chunk in client.send_message(request):
         if chunk.HasField("artifact_update"):
             for part in chunk.artifact_update.artifact.parts:
                 if part.HasField("text"):
@@ -105,7 +164,10 @@ async def a2a_store(client, history: list[dict]) -> str:
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 async def main():
-    client = await create_client(A2A_SERVER_URL)
+    timeout = httpx.Timeout(12000)
+    httpx_client = httpx.AsyncClient(timeout=timeout)
+    config = ClientConfig(httpx_client=httpx_client)
+    client = await create_client(A2A_SERVER_URL, client_config=config)
     print("Assistente pronto. Scrivi 'exit' per uscire.\n")
 
     store   = True
