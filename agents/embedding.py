@@ -1,36 +1,4 @@
-import anthropic
 from core.interfaces import EmbeddingService
-
-MODEL = "text-embedding-3-small"
-
-
-class AnthropicEmbeddingService(EmbeddingService):
-    """
-    Usa il client Anthropic per generare embedding.
-    Nota: Anthropic non espone ancora un endpoint embedding nativo —
-    usiamo OpenAI text-embedding-3-small come service esterno,
-    wrappato in questa interfaccia per poterlo swappare facilmente.
-    """
-
-    def __init__(self, api_key: str):
-        # Per ora usiamo openai direttamente dato che Anthropic
-        # non ha ancora un endpoint embedding pubblico.
-        try:
-            from openai import OpenAI
-            self._client = OpenAI(api_key=api_key)
-            self._backend = "openai"
-        except ImportError:
-            raise RuntimeError(
-                "openai package required for embeddings: pip install openai"
-            )
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        response = self._client.embeddings.create(
-            input=texts,
-            model="text-embedding-3-small"
-        )
-        return [item.embedding for item in response.data]
-
 
 class LocalEmbeddingService(EmbeddingService):
     """
@@ -51,6 +19,7 @@ class LocalEmbeddingService(EmbeddingService):
         embeddings = self._model.encode(texts, convert_to_numpy=True)
         return embeddings.tolist()
     
+
 class OpenAICompatibleEmbeddingService(EmbeddingService):
     """
     Funziona con qualsiasi server che espone /v1/embeddings compatibile OpenAI:

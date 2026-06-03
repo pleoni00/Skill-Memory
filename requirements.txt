@@ -1,13 +1,9 @@
-anthropic>=0.50.0
 mcp>=1.0.0
-kuzu>=0.7.0
 sqlite-vec>=0.1.0
 numpy>=1.24.0
+openai>=1.0.0
+a2a-sdk>=1.0.0
 
 # per embedding locale (fallback senza OpenAI)
 # sentence-transformers>=2.2.0
 
-# per embedding OpenAI
-openai>=1.0.0
-
-a2a-sdk>=1.0.0
