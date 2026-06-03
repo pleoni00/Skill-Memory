@@ -1,20 +1,3 @@
-"""
-DAG Memory MCP Server
----------------------
-Variabili d'ambiente:
-  LLM_BASE_URL      — base URL del server LLM  (default: https://api.x.ai/v1)
-  LLM_MODEL         — modello da usare          (default: grok-3-mini)
-  LLM_API_KEY       — api key del server LLM    (default: dummy)
-  EMBED_BASE_URL    — base URL embedding        (default: stesso di LLM_BASE_URL)
-  EMBED_MODEL       — modello embedding         (default: text-embedding-3-small)
-  DAG_DB_PATH       — path DB Kuzu             (default: ./data/dag)
-  VEC_DB_PATH       — path DB sqlite-vec       (default: ./data/vec.db)
-  EMBED_DIM         — dimensione embedding     (default: 1536)
-
-Avvio:
-  LLM_API_KEY=xai-... LLM_MODEL=grok-3-mini python mcp/server.py
-"""
-
 import os
 import sys
 import asyncio
@@ -28,16 +11,16 @@ from mcp.server.stdio import stdio_server
 from mcp import types
 
 from core.entities import Turn, Conversation, Chunk
-from storage import KuzuGraphStore, SqliteVectorStore
+from storage import SqliteGraphStore, SqliteVectorStore
 from agents import (
     OpenAICompatibleLLMClient,
     OpenAICompatibleEmbeddingService,
-    LocalEmbeddingService,
     LLMExtractor,
-    HybridRetriever,
     LLMMerger,
+    HybridRetriever,
     LLMQueryBuilder,
     LLMSummaryUpdater,
+    LLMMergeDecisionAgent,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -48,15 +31,15 @@ LLM_API_KEY    = os.environ.get("LLM_API_KEY",    "dummy")
 EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL",  LLM_BASE_URL)
 EMBED_MODEL    = os.environ.get("EMBED_MODEL",     "text-embedding-3-small")
 EMBED_API_KEY  = os.environ.get("EMBED_API_KEY",   LLM_API_KEY)
-DAG_DB_PATH    = os.environ.get("DAG_DB_PATH",    "./data/dag")
+DAG_DB_PATH    = os.environ.get("DAG_DB_PATH",    "./data/vec.db")
 VEC_DB_PATH    = os.environ.get("VEC_DB_PATH",    "./data/vec.db")
 EMBED_DIM      = int(os.environ.get("EMBED_DIM",  "1536"))
 
 Path("./data").mkdir(exist_ok=True)
 
-# ── Storage ───────────────────────────────────────────────────────────────────
+# ── Storage (SqliteGraphStore come in A2A) ────────────────────────────────────
 
-graph  = KuzuGraphStore(DAG_DB_PATH)
+graph  = SqliteGraphStore(DAG_DB_PATH)
 vector = SqliteVectorStore(VEC_DB_PATH, embedding_dim=EMBED_DIM)
 
 # ── LLM client ────────────────────────────────────────────────────────────────
@@ -66,24 +49,18 @@ llm = OpenAICompatibleLLMClient(
     base_url = LLM_BASE_URL,
     api_key  = LLM_API_KEY,
 )
+embed_service = OpenAICompatibleEmbeddingService(
+    model    = EMBED_MODEL,
+    base_url = EMBED_BASE_URL,
+    api_key  = EMBED_API_KEY,
+)
 
-# ── Embedding service ─────────────────────────────────────────────────────────
-
-try:
-    embed_service = OpenAICompatibleEmbeddingService(
-        model    = EMBED_MODEL,
-        base_url = EMBED_BASE_URL,
-        api_key  = EMBED_API_KEY,
-    )
-except Exception:
-    print("[warning] Embedding remoto non disponibile, uso locale (384d)", file=sys.stderr)
-    embed_service = LocalEmbeddingService()
-
-# ── Agenti ────────────────────────────────────────────────────────────────────
+# ── Agenti (stessa istanza di A2A) ────────────────────────────────────────────
 
 extractor       = LLMExtractor(embed_service, llm)
+decision_agent  = LLMMergeDecisionAgent(llm, graph)
 retriever       = HybridRetriever(llm, graph, vector)
-merger          = LLMMerger(graph, vector, embed_service, llm)
+merger          = LLMMerger(graph, vector, embed_service)
 query_builder   = LLMQueryBuilder(llm)
 summary_updater = LLMSummaryUpdater(graph, llm)
 
@@ -144,43 +121,7 @@ async def list_tools() -> list[types.Tool]:
                 },
                 "required": ["turns"]
             }
-        ),
-        types.Tool(
-            name        = "configure",
-            description = (
-                "Configura il contesto dell'agente. "
-                "Imposta l'obiettivo, il ruolo e le istruzioni permanenti "
-                "che guidano come la memoria viene costruita e interrogata."
-            ),
-            inputSchema = {
-                "type": "object",
-                "properties": {
-                    "context": {
-                        "type": "string",
-                        "description": "Descrizione dell'agente, obiettivo, contesto permanente."
-                    }
-                },
-                "required": ["context"]
-            }
-        ),
-        types.Tool(
-            name        = "get_node",
-            description = "Legge un nodo specifico del DAG per ID.",
-            inputSchema = {
-                "type": "object",
-                "properties": {"node_id": {"type": "string"}},
-                "required": ["node_id"]
-            }
-        ),
-        types.Tool(
-            name        = "get_children",
-            description = "Restituisce i figli di un nodo per navigazione manuale del DAG.",
-            inputSchema = {
-                "type": "object",
-                "properties": {"node_id": {"type": "string"}},
-                "required": ["node_id"]
-            }
-        ),
+        )
     ]
 
 
@@ -193,107 +134,116 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     if name == "store_conversation":
         return await _handle_store(arguments)
 
-    if name == "get_node":
-        node = graph.get_node(arguments["node_id"])
-        if not node:
-            return [types.TextContent(type="text", text="Nodo non trovato.")]
-        return [types.TextContent(type="text", text=json.dumps(node.to_dict(), ensure_ascii=False))]
-
-    if name == "get_children":
-        children = graph.get_children(arguments["node_id"])
-        return [types.TextContent(type="text", text=json.dumps(
-            [c.to_dict() for c in children], ensure_ascii=False
-        ))]
-
-    if name == "configure":
-        return await _handle_configure(arguments)
-
     return [types.TextContent(type="text", text=f"Tool '{name}' non riconosciuto.")]
 
 
 async def _handle_search(args: dict) -> list[types.TextContent]:
-    turns  = [Turn(role=t["role"], content=t["content"]) for t in args.get("turns", [])]
-    top_k  = args.get("top_k", 5)
+    turns = [
+        Turn(role=t["role"], content=t["content"])
+        for t in args.get("turns", [])
+    ]
+
+    if not query_builder._needs_retrieval(turns):
+        return [
+            types.TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "nodes": [],
+                        "query_used": ""
+                    }
+                )
+            )
+        ]
 
     query = query_builder.build(turns)
     if not query:
-        return [types.TextContent(type="text", text=json.dumps({"nodes": [], "query_used": ""}))]
+        return [
+            types.TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "nodes": [],
+                        "query_used": ""
+                    }
+                )
+            )
+        ]
 
-    query_embedding  = embed_service.embed_one(query)
-    synthetic_chunk  = Chunk(
-        text                   = query,
-        embedding              = query_embedding,
-        topic                  = "search",
-        source_conversation_id = "search",
+    embedding = embed_service.embed_one(query)
+    synthetic_chunk = Chunk(
+        text=query,
+        embedding=embedding,
+        topic="search",
+        source_conversation_id="search",
     )
-
-    results = retriever.retrieve(synthetic_chunk, top_k=top_k)
-
+    retrieved = retriever.retrieve(synthetic_chunk)
     output = {
         "query_used": query,
-        "nodes": [r.node.to_dict() for r in results]
+        "nodes": [
+            n.to_dict()
+            for n in retrieved
+        ]
     }
 
-    return [types.TextContent(type="text", text=json.dumps(output, ensure_ascii=False, indent=2))]
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(
+                output,
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+    ]
 
 
 async def _handle_store(args: dict) -> list[types.TextContent]:
-    turns = [Turn(role=t["role"], content=t["content"]) for t in args.get("turns", [])]
+    turns = [
+        Turn(role=t["role"], content=t["content"])
+        for t in args.get("turns", [])
+    ]
+
     convo = Conversation(turns=turns)
-    log   = []
-
+    log = []
     chunks = extractor.extract(convo)
-    log.append(f"Estratti {len(chunks)} chunk.")
 
+    log.append(f"Estratti {len(chunks)} chunk.")
     if not chunks:
         return [types.TextContent(type="text", text="\n".join(log))]
+    nodes = retriever.retrieve_and_decide(chunks)
+    batch = decision_agent.decide(chunks, nodes)
 
-    nodes_modified = set()
-    for chunk in chunks:
-        candidates = retriever.retrieve(chunk, top_k=3)
-        decision   = merger.decide(chunk, candidates)
-        result     = merger.apply(decision)
-
-        log.append(
-            f"Chunk '{chunk.topic}': {decision.action.value}"
-            + (f" → {result.id}" if result else "")
-            + f" ({decision.rationale})"
+    for decision in batch.decisions:
+        target_id = (
+            decision.target_node.id
+            if decision.target_node
+            else None
+        )
+        parent_id = (
+            decision.parent_node.id
+            if decision.parent_node
+            else None
+        )
+        line = (
+            f"Chunk '{decision.chunk.topic}': "
+            f"{decision.action.value}"
         )
 
-        if result:
-            nodes_modified.add(result.id)
+        if target_id:
+            line += f" → target={target_id}"
+        if parent_id:
+            line += f" parent={parent_id}"
+        line += f" ({decision.rationale})"
+        log.append(line)
 
+    affected_nodes = merger.apply(batch)
+    nodes_modified = {n.id for n in affected_nodes}
+    log.append(f"{len(affected_nodes)} nodi creati o modificati.")
     for node_id in nodes_modified:
         summary_updater.update_ancestors(node_id)
-
     log.append(f"Summary aggiornati per {len(nodes_modified)} nodi.")
 
-    return [types.TextContent(type="text", text="\n".join(log))]
-
-
-async def _handle_configure(args: dict) -> list[types.TextContent]:
-    context = args.get("context", "").strip()
-    turns = [Turn(role="system", content=context)]
-    convo = Conversation(turns=turns)
-    log   = []
-
-    chunks = extractor.extract(convo)
-    log.append(f"Estratti {len(chunks)} chunk.")
-
-    if not chunks:
-        return [types.TextContent(type="text", text="\n".join(log))]
-
-    for chunk in chunks:
-        candidates = retriever.retrieve(chunk, top_k=3)
-        decision   = merger.decide(chunk, candidates)
-        result     = merger.apply(decision)
-
-        log.append(
-            f"Chunk '{chunk.topic}': {decision.action.value}"
-            + (f" → {result.id}" if result else "")
-            + f" ({decision.rationale})"
-        )
-    
     return [types.TextContent(type="text", text="\n".join(log))]
 
 
