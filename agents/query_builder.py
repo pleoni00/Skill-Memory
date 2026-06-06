@@ -65,9 +65,9 @@ class LLMSummaryUpdater(SummaryUpdater):
         )
 
         user_msg = (
-            f"NODO: {node.title}\n"
-            f"CONTENUTO: {node.content[:300]}\n\n"
-            f"FIGLI:\n{children_summaries or 'Nessuno'}"
+            f"NODE: {node.title}\n"
+            f"CONTENT: {node.content[:300]}\n\n"
+            f"CHILDREN:\n{children_summaries or 'None'}"
         )
 
         node.summary = self._llm.complete(

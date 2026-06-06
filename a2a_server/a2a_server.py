@@ -49,7 +49,7 @@ summary_updater =  LLMSummaryUpdater(graph, llm)
 
 agent_card = AgentCard(
     name='Conv Memory Agent',
-    description='Agent for managing conversational memory through a hybrid knowledge graph (DAG + vector store).',
+    description='Agent for managing behavior memory through a hybrid DAG-based memory store.',
     version='1.0.0',
     supported_interfaces=[
         AgentInterface(protocol_binding='JSONRPC', url='http://localhost:8000/')
@@ -61,7 +61,7 @@ agent_card = AgentCard(
             name='Knowledge graph search',
             description=(
                 'Given a set of conversation turns, retrieve the most relevant '
-                'nodes from the hybrid knowledge graph (DAG + vector store). '
+                'nodes from the hybrid behavior memory graph (DAG + vector store). '
                 'Returns a list of nodes with title and content to inject as '
                 'context into the LLM system prompt.'
             ),
@@ -75,16 +75,16 @@ agent_card = AgentCard(
         ),
         AgentSkill(
             id='ingestion',
-            name='Conversation storage in the knowledge graph',
+            name='Behavior memory storage',
             description=(
                 'Receives a list of conversation turns (role + content), '
                 'processes them by extracting entities and relationships, and persists '
-                'them in the hybrid knowledge graph while updating both the DAG and vector store.'
+                'them in the hybrid behavior memory graph while updating both the DAG and vector store.'
             ),
             tags=['ingestion', 'memory', 'store', 'graph', 'embedding'],
             examples=[
-                'Store a retrieval-augmented generation conversation in the knowledge graph',
-                'Index and persist a debugging session on agent memory design',
+                'Store a behavior feedback conversation in memory',
+                'Persist feedback about tone, verbosity, and structure',
             ],
             input_modes=['application/json'],
             output_modes=['text/plain'],

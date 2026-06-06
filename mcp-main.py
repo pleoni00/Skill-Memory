@@ -137,7 +137,7 @@ async def build_session(transport: str, server_cmd: list[str], server_url: str):
         read, write = await stack.enter_async_context(stdio_client(server_params))
         session = await stack.enter_async_context(ClientSession(read, write))
     elif transport == "http":
-        read, write = await stack.enter_async_context(streamable_http_client(server_url))
+        read, write, _ = await stack.enter_async_context(streamable_http_client(server_url))
         session = await stack.enter_async_context(ClientSession(read, write))
     else:
         raise ValueError(f"Unsupported transport: {transport}")

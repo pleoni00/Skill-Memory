@@ -9,6 +9,7 @@ from a2a.types import Part, TaskState
 from core.entities import Turn, Conversation, Chunk
 from core.interfaces import LLMClient, GraphStore, VectorStore, Extractor, Retriever, Merger, QueryBuilder, SummaryUpdater, EmbeddingService, MergeDecisionAgent
 
+
 class ConvMemoryExecutor(AgentExecutor):
     def __init__(
         self,
@@ -71,7 +72,7 @@ class ConvMemoryExecutor(AgentExecutor):
     async def _handle_retrieval(self, payload: dict, updater: TaskUpdater, task) -> None:
         await updater.update_status(
             TaskState.TASK_STATE_WORKING,
-            new_text_message("Searching knowledge graph.....", task_id=task.id, context_id=task.context_id),
+            new_text_message("Searching behavior memory...", task_id=task.id, context_id=task.context_id),
         )
 
         turns = [
@@ -87,7 +88,7 @@ class ConvMemoryExecutor(AgentExecutor):
                 name="retrieval_result",
             )
             await updater.complete()
-            return            
+            return
 
         query = self._query_builder.build(turns)
         if not query:
@@ -102,8 +103,8 @@ class ConvMemoryExecutor(AgentExecutor):
         synthetic_chunk = Chunk(
             text                   = query,
             embedding              = query_embedding,
-            topic                  = "search",
-            source_conversation_id = "search",
+            topic                  = "behavior_search",
+            source_conversation_id = "behavior_search",
         )
 
         retrieved_nodes = self._retriever.retrieve(synthetic_chunk)
@@ -124,7 +125,7 @@ class ConvMemoryExecutor(AgentExecutor):
     async def _handle_ingestion(self, payload: dict, updater: TaskUpdater, task) -> None:
         await updater.update_status(
             TaskState.TASK_STATE_WORKING,
-            new_text_message("Processing conversation.....", task_id=task.id, context_id=task.context_id),
+            new_text_message("Processing behavior feedback...", task_id=task.id, context_id=task.context_id),
         )
 
         turns = [
@@ -135,11 +136,11 @@ class ConvMemoryExecutor(AgentExecutor):
         log   = []
 
         chunks = self._extractor.extract(convo)
-        log.append(f"Extracted {len(chunks)} chunks.")
+        log.append(f"Extracted {len(chunks)} behavior feedback chunks.")
 
         if not chunks:
             await updater.add_artifact(
-                [Part(text="\n".join(log))],
+                [Part(text="\\n".join(log))],
                 name="ingestion_log",
             )
             await updater.complete()
@@ -165,16 +166,15 @@ class ConvMemoryExecutor(AgentExecutor):
         affected = self._merger.apply(batch)
         nodes_modified = {n.id for n in affected}
 
-        log.append(f"{len(affected)} nodes created or modified.")
+        log.append(f"{len(affected)} behavior nodes created or modified.")
 
         for node_id in nodes_modified:
             self._summary_updater.update_ancestors(node_id)
 
-        log.append(f"Summaries updated for {len(nodes_modified)} nodes.")
+        log.append(f"Behavior summaries updated for {len(nodes_modified)} nodes.")
 
         await updater.add_artifact(
-            [Part(text="\n".join(log))],
+            [Part(text="\\n".join(log))],
             name="ingestion_log",
         )
-        await updater.complete()        
-        
+        await updater.complete()

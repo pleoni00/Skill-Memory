@@ -5,6 +5,7 @@ from core.interfaces import Extractor, EmbeddingService
 from agents.llm_client import LLMClient
 from agents.prompts import EXTRACTOR_PROMPT
 
+
 class LLMExtractor(Extractor):
 
     def __init__(self, embedding_service: EmbeddingService, llm: LLMClient):
@@ -28,19 +29,33 @@ class LLMExtractor(Extractor):
         except json.JSONDecodeError:
             return []
 
-        if not items:
+        feedback_items = items.get("behavior_feedback", [])
+        if not feedback_items:
             return []
-        
-        knowledge_chunks = items.get("knowledge", [])
-        summaries      = [item["summary"] for item in knowledge_chunks]
+
+        summaries = [item["description"] for item in feedback_items if item.get("description")]
+        if not summaries:
+            return []
+
         embeddings = self._embed.embed(summaries)
 
-        return [
-            Chunk(
-                text                   = item["summary"],
-                topic                  = item["topic"],
-                embedding              = emb,
-                source_conversation_id = conversation.id,
+        chunks: list[Chunk] = []
+        for item, emb in zip(feedback_items, embeddings):
+            description = item.get("description", "")
+            if not description:
+                continue
+            signals = item.get("signals", [])
+            topic = item.get("signal_type", "behavior_feedback")
+            if signals:
+                topic = f"{topic}: {signals[0][:48]}"
+
+            chunks.append(
+                Chunk(
+                    text                   = description,
+                    topic                  = topic,
+                    embedding              = emb,
+                    source_conversation_id = conversation.id,
+                )
             )
-            for item, emb in zip(knowledge_chunks, embeddings)
-        ]
+
+        return chunks
