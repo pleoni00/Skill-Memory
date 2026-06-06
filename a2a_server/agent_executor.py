@@ -45,7 +45,7 @@ class ConvMemoryExecutor(AgentExecutor):
         except (json.JSONDecodeError, TypeError):
             await updater.update_status(
                 TaskState.TASK_STATE_FAILED,
-                new_text_message("Payload non valido: atteso JSON.", task_id=task.id, context_id=task.context_id),
+                new_text_message("Invalid payload: JSON expected.", task_id=task.id, context_id=task.context_id),
                 final=True,
             )
             return
@@ -59,19 +59,19 @@ class ConvMemoryExecutor(AgentExecutor):
         else:
             await updater.update_status(
                 TaskState.TASK_STATE_FAILED,
-                new_text_message(f"Skill '{skill}' non riconosciuta.", task_id=task.id, context_id=task.context_id),
+                new_text_message(f"Skill '{skill}' not recognized.", task_id=task.id, context_id=task.context_id),
                 final=True,
             )
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        raise NotImplementedError("Cancellazione non supportata.")
+        raise NotImplementedError("Cancellation not supported.")
 
     # ── skill: retrieval ──────────────────────────────────────────────────────
 
     async def _handle_retrieval(self, payload: dict, updater: TaskUpdater, task) -> None:
         await updater.update_status(
             TaskState.TASK_STATE_WORKING,
-            new_text_message("Ricerca nel knowledge graph...", task_id=task.id, context_id=task.context_id),
+            new_text_message("Searching knowledge graph.....", task_id=task.id, context_id=task.context_id),
         )
 
         turns = [
@@ -124,7 +124,7 @@ class ConvMemoryExecutor(AgentExecutor):
     async def _handle_ingestion(self, payload: dict, updater: TaskUpdater, task) -> None:
         await updater.update_status(
             TaskState.TASK_STATE_WORKING,
-            new_text_message("Processamento conversazione...", task_id=task.id, context_id=task.context_id),
+            new_text_message("Processing conversation.....", task_id=task.id, context_id=task.context_id),
         )
 
         turns = [
@@ -135,7 +135,7 @@ class ConvMemoryExecutor(AgentExecutor):
         log   = []
 
         chunks = self._extractor.extract(convo)
-        log.append(f"Estratti {len(chunks)} chunk.")
+        log.append(f"Extracted {len(chunks)} chunks.")
 
         if not chunks:
             await updater.add_artifact(
@@ -147,7 +147,7 @@ class ConvMemoryExecutor(AgentExecutor):
 
         # Retrieve + decide in batch
         nodes = self._retriever.retrieve_and_decide(chunks)
-        batch = self._decision_agent.decide(chunks, nodes)  # per ora, decisioni solo sul primo chunk
+        batch = self._decision_agent.decide(chunks, nodes)
 
         for decision in batch.decisions:
             target_id = decision.target_node.id if decision.target_node else None
@@ -165,12 +165,12 @@ class ConvMemoryExecutor(AgentExecutor):
         affected = self._merger.apply(batch)
         nodes_modified = {n.id for n in affected}
 
-        log.append(f"{len(affected)} nodi creati o modificati.")
+        log.append(f"{len(affected)} nodes created or modified.")
 
         for node_id in nodes_modified:
             self._summary_updater.update_ancestors(node_id)
 
-        log.append(f"Summary aggiornati per {len(nodes_modified)} nodi.")
+        log.append(f"Summaries updated for {len(nodes_modified)} nodes.")
 
         await updater.add_artifact(
             [Part(text="\n".join(log))],

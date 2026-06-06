@@ -1,13 +1,13 @@
 """
-Assistente minimale con memoria DAG — client A2A.
+Minimal assistant with DAG memory — A2A client.
 -------------------------------------
-Variabili d'ambiente:
-  LLM_BASE_URL   — base URL LLM    (default: https://api.x.ai/v1)
-  LLM_MODEL      — modello         (default: grok-3-mini)
-  LLM_API_KEY    — api key         (obbligatorio)
-  A2A_SERVER_URL — URL server A2A  (default: http://localhost:8000)
+Environment variables:
+  LLM_BASE_URL   — LLM base URL    (default: https://api.x.ai/v1)
+  LLM_MODEL      — model           (default: grok-3-mini)
+  LLM_API_KEY    — API key         (required)
+  A2A_SERVER_URL — A2A server URL  (default: http://localhost:8000)
 
-Avvio:
+Run:
   python main.py
 """
 
@@ -98,7 +98,7 @@ def chat(history: list[dict], context_nodes: list[dict]) -> str:
             f"[{n['title']}]\n{n['content']}"
             for n in context_nodes
         )
-        system += f"\n\nContesto dalla memoria:\n{context_text}"
+        system += f"\n\nContext from memory:\n{context_text}"
 
     response = llm.chat.completions.create(
         model    = LLM_MODEL,
@@ -110,7 +110,7 @@ def chat(history: list[dict], context_nodes: list[dict]) -> str:
 # ── A2A helpers ───────────────────────────────────────────────────────────────
 
 async def a2a_search(client, history: list[dict], top_k: int = 5) -> list[dict]:
-    """Chiama la skill retrieval sul server A2A."""
+    """Call the retrieval skill on the A2A server."""
     payload = json.dumps({
         "skill":  "retrieval",
         "turns":  history[-6:],
@@ -138,7 +138,7 @@ async def a2a_search(client, history: list[dict], top_k: int = 5) -> list[dict]:
 
 
 async def a2a_store(client, history: list[dict]) -> str:
-    """Chiama la skill ingestion sul server A2A."""
+    """Call the ingestion skill on the A2A server."""
     payload = json.dumps({
         "skill": "ingestion",
         "turns": history,
@@ -168,14 +168,14 @@ async def main():
     httpx_client = httpx.AsyncClient(timeout=timeout)
     config = ClientConfig(httpx_client=httpx_client)
     client = await create_client(A2A_SERVER_URL, client_config=config)
-    print("Assistente pronto. Scrivi 'exit' per uscire.\n")
+    print("Assistant ready. Type 'exit' to quit.\n")
 
     store   = True
     history: list[dict] = []
 
     while True:
         try:
-            user_input = input("Tu: ").strip()
+            user_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             break
 
@@ -191,7 +191,7 @@ async def main():
 
         nodes = await a2a_search(client, history)
         reply = chat(history, nodes)
-        print(f"\nAssistente: {reply}\n")
+        print(f"\nAssistant: {reply}\n")
 
         history.append({"role": "assistant", "content": reply})
 
@@ -199,7 +199,7 @@ async def main():
             history = history[-(MAX_HISTORY_TURNS * 2):]
 
     if history and store:
-        print("\nSalvataggio conversazione in memoria...")
+        print("\nSaving conversation to memory...")
         log = await a2a_store(client, history)
         print(log)
 

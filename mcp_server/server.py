@@ -55,7 +55,7 @@ embed_service = OpenAICompatibleEmbeddingService(
     api_key  = EMBED_API_KEY,
 )
 
-# ── Agenti (stessa istanza di A2A) ────────────────────────────────────────────
+# ── Agents ────────────────────────────────────────────────────────────────────
 
 extractor       = LLMExtractor(embed_service, llm)
 decision_agent  = LLMMergeDecisionAgent(llm, graph)
@@ -75,9 +75,9 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name        = "search",
             description = (
-                "Cerca informazioni nella memoria DAG. "
-                "Passa gli ultimi N turni della conversazione: "
-                "il server costruisce la query e restituisce i nodi più rilevanti."
+                "Search for information in DAG memory. "
+                "Pass the last N conversation turns: "
+                "the server builds the query and returns the most relevant nodes."
             ),
             inputSchema = {
                 "type": "object",
@@ -101,8 +101,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name        = "store_conversation",
             description = (
-                "Processa una conversazione e aggiorna la memoria DAG. "
-                "Da chiamare a fine conversazione."
+                "Process a conversation and update DAG memory. "
+                "Call this at the end of a conversation."
             ),
             inputSchema = {
                 "type": "object",
@@ -134,7 +134,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     if name == "store_conversation":
         return await _handle_store(arguments)
 
-    return [types.TextContent(type="text", text=f"Tool '{name}' non riconosciuto.")]
+    return [types.TextContent(type="text", text=f"Tool '{name}' not recognized.")]
 
 
 async def _handle_search(args: dict) -> list[types.TextContent]:
@@ -208,7 +208,7 @@ async def _handle_store(args: dict) -> list[types.TextContent]:
     log = []
     chunks = extractor.extract(convo)
 
-    log.append(f"Estratti {len(chunks)} chunk.")
+    log.append(f"Extracted {len(chunks)} chunks.")
     if not chunks:
         return [types.TextContent(type="text", text="\n".join(log))]
     nodes = retriever.retrieve_and_decide(chunks)

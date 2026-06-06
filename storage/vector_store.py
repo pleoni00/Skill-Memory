@@ -77,7 +77,7 @@ class SqliteVectorStore(VectorStore):
             LIMIT ?
         """, (blob, top_k)).fetchall()
 
-        # vec0 restituisce distanza L2; convertiamo in similarità [0,1]
+        # vec0 returns L2 distance; convert it to similarity [0,1]
         results = []
         for node_id, dist in rows:
             score = 1.0 / (1.0 + dist)

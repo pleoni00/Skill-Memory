@@ -69,7 +69,7 @@ CONSTRAINTS
 - Default to the simplest explanation consistent with the evidence (Occam's razor).
 """
 
-MAX_HISTORY_TURNS = 10   # turni mantenuti in memoria per la sessione
+MAX_HISTORY_TURNS = 10   # turns kept in memory for the session
 
 # ── LLM client ────────────────────────────────────────────────────────────────
 
@@ -77,14 +77,14 @@ llm = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
 
 def chat(history: list[dict], context_nodes: list[dict]) -> str:
-    """Chiama l'LLM con history + contesto DAG iniettato nel system prompt."""
+    """Call the LLM with history + DAG context injected into the system prompt."""
     system = SYSTEM_PROMPT
     if context_nodes:
         context_text = "\n\n".join(
             f"[{n['title']}]\n{n['content']}"
             for n in context_nodes
         )
-        system += f"\n\nContesto dalla memoria:\n{context_text}"
+        system += f"\n\nContext from memory:\n{context_text}"
 
     response = llm.chat.completions.create(
         model    = LLM_MODEL,
@@ -96,7 +96,7 @@ def chat(history: list[dict], context_nodes: list[dict]) -> str:
 # ── MCP helpers ───────────────────────────────────────────────────────────────
 
 async def mcp_search(session: ClientSession, history: list[dict], top_k: int = 5) -> list[dict]:
-    """Chiama il tool search passando gli ultimi N turni."""
+    """Call the search tool with the last N turns."""
     turns = [
         {"role": m["role"], "content": m["content"]}
         for m in history[-6:]
@@ -110,7 +110,7 @@ async def mcp_search(session: ClientSession, history: list[dict], top_k: int = 5
 
 
 async def mcp_store(session: ClientSession, history: list[dict]) -> str:
-    """Chiama store_conversation a fine sessione."""
+    """Call store_conversation at the end of the session."""
     turns = [
         {"role": m["role"], "content": m["content"]}
         for m in history
@@ -136,13 +136,13 @@ async def main():
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            print("Assistente pronto. Scrivi 'exit' per uscire.\n")
+            print("Assistant ready. Type 'exit' to quit.\n")
 
             history: list[dict] = []
 
             while True:
                 try:
-                    user_input = input("Tu: ").strip()
+                    user_input = input("You: ").strip()
                 except (EOFError, KeyboardInterrupt):
                     break
 
@@ -160,26 +160,26 @@ async def main():
                         store = False
                     break
 
-                # Aggiunge il messaggio utente alla history
+                # Add the user message to history
                 history.append({"role": "user", "content": user_input})
 
-                # Cerca contesto nel DAG
+                # Search for context in the DAG
                 nodes = await mcp_search(session, history)
 
-                # Risponde con contesto
+                # Respond with context
                 reply = chat(history, nodes)
-                print(f"\nAssistente: {reply}\n")
+                print(f"\nAssistant: {reply}\n")
 
-                # Aggiunge risposta alla history
+                # Add the response to history
                 history.append({"role": "assistant", "content": reply})
 
-                # Mantieni la history entro il limite
+                # Keep history within the limit
                 if len(history) > MAX_HISTORY_TURNS * 2:
                     history = history[-(MAX_HISTORY_TURNS * 2):]
 
-            # Fine sessione: salva in memoria
+            # End of session: save to memory
             if history and store:
-                print("\nSalvataggio conversazione in memoria...")
+                print("\nSaving conversation to memory...")
                 log = await mcp_store(session, history)
                 print(log)
 

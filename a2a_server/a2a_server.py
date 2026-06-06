@@ -49,7 +49,7 @@ summary_updater =  LLMSummaryUpdater(graph, llm)
 
 agent_card = AgentCard(
     name='Conv Memory Agent',
-    description='Agente per la gestione della memoria conversazionale tramite knowledge graph ibrido (DAG + vector store).',
+    description='Agent for managing conversational memory through a hybrid knowledge graph (DAG + vector store).',
     version='1.0.0',
     supported_interfaces=[
         AgentInterface(protocol_binding='JSONRPC', url='http://localhost:8000/')
@@ -58,33 +58,33 @@ agent_card = AgentCard(
     skills=[
         AgentSkill(
             id='retrieval',
-            name='Ricerca nel knowledge graph',
+            name='Knowledge graph search',
             description=(
-                'Dato un insieme di turni conversazionali, recupera i nodi '
-                'più rilevanti dal knowledge graph ibrido (DAG + vector store). '
-                'Restituisce una lista di nodi con titolo e contenuto da iniettare '
-                'come contesto nel system prompt dell\'LLM.'
+                'Given a set of conversation turns, retrieve the most relevant '
+                'nodes from the hybrid knowledge graph (DAG + vector store). '
+                'Returns a list of nodes with title and content to inject as '
+                'context into the LLM system prompt.'
             ),
             tags=['retrieval', 'search', 'memory', 'graph', 'vector'],
             examples=[
-                'Recupera contesto rilevante per una conversazione su DAG memory systems',
-                'Trova nodi correlati a LLM orchestration e agent memory design',
+                'Retrieve relevant context for a conversation about DAG memory systems',
+                'Find nodes related to LLM orchestration and agent memory design',
             ],
             input_modes=['application/json'],
             output_modes=['application/json'],
         ),
         AgentSkill(
             id='ingestion',
-            name='Salvataggio conversazione nel knowledge graph',
+            name='Conversation storage in the knowledge graph',
             description=(
-                'Riceve una lista di turni conversazionali (role + content), '
-                'li processa estraendo entità e relazioni, e li persiste '
-                'nel knowledge graph ibrido aggiornando sia il DAG che il vector store.'
+                'Receives a list of conversation turns (role + content), '
+                'processes them by extracting entities and relationships, and persists '
+                'them in the hybrid knowledge graph while updating both the DAG and vector store.'
             ),
             tags=['ingestion', 'memory', 'store', 'graph', 'embedding'],
             examples=[
-                'Salva una conversazione su retrieval-augmented generation nel knowledge graph',
-                'Indicizza e persisti una sessione di debug su agent memory design',
+                'Store a retrieval-augmented generation conversation in the knowledge graph',
+                'Index and persist a debugging session on agent memory design',
             ],
             input_modes=['application/json'],
             output_modes=['text/plain'],

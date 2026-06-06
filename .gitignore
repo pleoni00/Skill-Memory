@@ -5,3 +5,4 @@ docker-compose.yml
 .vscode
 data
 */__pycache__
+Dockerfile.mcp
