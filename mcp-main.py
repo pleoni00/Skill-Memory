@@ -1,11 +1,14 @@
 import os
 import json
 import asyncio
+import argparse
+from contextlib import AsyncExitStack
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 load_dotenv()
 
@@ -15,6 +18,7 @@ LLM_BASE_URL   = os.environ.get("LLM_BASE_URL",   "https://api.x.ai/v1")
 LLM_MODEL      = os.environ.get("LLM_MODEL",      "grok-3-mini")
 LLM_API_KEY    = os.environ.get("LLM_API_KEY",    "dummy")
 MCP_SERVER_CMD = os.environ.get("MCP_SERVER_CMD", "python mcp/server.py").split()
+MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:8000/mcp")
 
 SYSTEM_PROMPT = """
 You are K8sRCAAgent, a specialized assistant for root cause analysis (RCA) of incidents
@@ -122,66 +126,101 @@ async def mcp_store(session: ClientSession, history: list[dict]) -> str:
         return ""
 
 
+async def build_session(transport: str, server_cmd: list[str], server_url: str):
+    stack = AsyncExitStack()
+    if transport == "stdio":
+        server_params = StdioServerParameters(
+            command=server_cmd[0],
+            args=server_cmd[1:],
+            env=os.environ.copy(),
+        )
+        read, write = await stack.enter_async_context(stdio_client(server_params))
+        session = await stack.enter_async_context(ClientSession(read, write))
+    elif transport == "http":
+        read, write = await stack.enter_async_context(streamable_http_client(server_url))
+        session = await stack.enter_async_context(ClientSession(read, write))
+    else:
+        raise ValueError(f"Unsupported transport: {transport}")
+
+    await session.initialize()
+    return stack, session
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 async def main():
-    server_params = StdioServerParameters(
-        command = MCP_SERVER_CMD[0],
-        args    = MCP_SERVER_CMD[1:],
-        env     = os.environ.copy(),
+    parser = argparse.ArgumentParser(description="Chat client for an MCP server.")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "http"),
+        default=os.environ.get("MCP_TRANSPORT", "stdio"),
+        help="MCP transport to use.",
     )
+    parser.add_argument(
+        "--server-url",
+        default=MCP_SERVER_URL,
+        help="Streamable HTTP MCP server URL.",
+    )
+    parser.add_argument(
+        "--server-cmd",
+        default=" ".join(MCP_SERVER_CMD),
+        help="Command used to start the stdio MCP server.",
+    )
+    args = parser.parse_args()
+
+    server_cmd = args.server_cmd.split()
+    server_url = args.server_url
 
     store = True
+    stack, session = await build_session(args.transport, server_cmd, server_url)
 
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            print("Assistant ready. Type 'exit' to quit.\n")
+    async with stack:
+        print("Assistant ready. Type 'exit' to quit.\n")
 
-            history: list[dict] = []
+        history: list[dict] = []
 
-            while True:
-                try:
-                    user_input = input("You: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    break
+        while True:
+            try:
+                user_input = input("You: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
 
-                if not user_input:
-                    continue
+            if not user_input:
+                continue
 
-                if user_input.startswith("/config "):
-                    context = user_input[8:].strip()
-                    result  = await session.call_tool("configure", {"context": context})
-                    print(result.content[0].text)
-                    continue
+            if user_input.startswith("/config "):
+                context = user_input[8:].strip()
+                result  = await session.call_tool("configure", {"context": context})
+                print(result.content[0].text)
+                continue
 
-                if user_input[:4] in ("exit", "quit", "esci"):
-                    if user_input.endswith("no_store"):
-                        store = False
-                    break
+            if user_input[:4] in ("exit", "quit", "esci"):
+                if user_input.endswith("no_store"):
+                    store = False
+                break
 
-                # Add the user message to history
-                history.append({"role": "user", "content": user_input})
+            # Add the user message to history
+            history.append({"role": "user", "content": user_input})
 
-                # Search for context in the DAG
-                nodes = await mcp_search(session, history)
+            # Search for context in the DAG
+            nodes = await mcp_search(session, history)
 
-                # Respond with context
-                reply = chat(history, nodes)
-                print(f"\nAssistant: {reply}\n")
+            # Respond with context
+            reply = chat(history, nodes)
+            print(f"\nAssistant: {reply}\n")
 
-                # Add the response to history
-                history.append({"role": "assistant", "content": reply})
+            # Add the response to history
+            history.append({"role": "assistant", "content": reply})
 
-                # Keep history within the limit
-                if len(history) > MAX_HISTORY_TURNS * 2:
-                    history = history[-(MAX_HISTORY_TURNS * 2):]
+            # Keep history within the limit
+            if len(history) > MAX_HISTORY_TURNS * 2:
+                history = history[-(MAX_HISTORY_TURNS * 2):]
 
-            # End of session: save to memory
-            if history and store:
-                print("\nSaving conversation to memory...")
-                log = await mcp_store(session, history)
-                print(log)
+        # End of session: save to memory
+        if history and store:
+            print("\nSaving conversation to memory...")
+            log = await mcp_store(session, history)
+            print(log)
 
 
 if __name__ == "__main__":

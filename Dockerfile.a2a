@@ -1,0 +1,28 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update &&     apt-get install -y --no-install-recommends     gcc     build-essential
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/data
+
+ENV DAG_DB_PATH=/app/data/graph.db
+ENV VEC_DB_PATH=/app/data/vector.db
+ENV EMBED_DIM=384
+ENV LLM_BASE_URL=https://api.x.ai/v1
+ENV LLM_MODEL=grok-3-mini
+ENV EMBED_BASE_URL=https://api.x.ai/v1
+ENV EMBED_MODEL=text-embedding-3-small
+
+EXPOSE 8000
+
+CMD ["python", "-m", "a2a_server.a2a_server"]
