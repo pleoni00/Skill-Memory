@@ -10,7 +10,7 @@ Over time, this also creates product value: an enterprise could ship not just a 
 
 ## How to run
 
-The project works through both MCP and A2A.
+The project works through both MCP and A2A. Two example agents are included, one for MCP and one for A2A, and they can be used as a starting point.
 
 ### MCP
 
